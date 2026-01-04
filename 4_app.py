@@ -95,9 +95,9 @@ agent_llm = ChatOpenAI(
 
 
 embeddings = OpenAIEmbeddings(
-    model="BAAI/bge-m3", # 必须和 SiliconFlow 上的模型名一致
-    openai_api_key=st.secrets["SILICONFLOW_API_KEY"], # 从 Secrets 读取 Key
-    openai_api_base="https://api.siliconflow.cn/v1/embeddings"   # 指向 SiliconFlow 的服务器
+    model="BAAI/bge-m3",  # 必须是这个全名
+    api_key=st.secrets["SILICONFLOW_API_KEY"],  # 注意：在新版里是 api_key，不是 openai_api_key
+    base_url="https://api.siliconflow.cn/v1/embeddings"    # 注意：在新版里是 base_url，不是 openai_api_base
 )
 
 if not os.path.exists(CHROMA_PATH):
