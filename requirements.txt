@@ -10,3 +10,4 @@ pysqlite3-binary
 pandas
 python-dotenv
 tiktoken
+sentence-transformers
