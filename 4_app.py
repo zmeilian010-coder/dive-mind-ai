@@ -8,6 +8,7 @@ from typing import List
 
 
 # --- 1. 这里粘贴你脚本 B 顶部的所有 import 语句 ---
+from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
 import os
 from pathlib import Path
 from langchain_core.documents import Document
@@ -675,6 +676,41 @@ def get_agent():
 dive_agent = get_agent()
 
 # --- 4. Streamlit 界面逻辑 ---
+# --- 侧边栏：潜水员档案 ---
+with st.sidebar:
+    st.header("🤿 我的潜水档案")
+    st.caption("AI 将根据你的档案给出个性化建议")
+
+    # 1. 等级选择
+    dive_level = st.selectbox(
+        "潜水等级",
+        ["初学者 (无证)", "OW (开放水域)", "AOW (进阶开放水域)", "Rescue (救援员)", "DM/教练"],
+        index=2  # 默认选 AOW
+    )
+
+    # 2. 瓶数输入
+    dive_logs = st.number_input("总潜水瓶数 (Logs)", min_value=0, value=50, step=1)
+
+    # 3. 偏好选择
+    interests = st.multiselect(
+        "潜水偏好",
+        ["大货 (鲨鱼/Manta)", "微距 (海兔/小虾)", "放流", "沉船", "洞穴", "水下摄影"],
+        default=["大货"]
+    )
+
+    st.divider()
+
+    # 4. 这里的状态会存入 session_state
+    user_profile = f"""
+    - 等级: {dive_level}
+    - 经验: {dive_logs} 瓶
+    - 偏好: {", ".join(interests)}
+    """
+
+    # 展示当前档案（可选，方便调试）
+    if st.checkbox("显示 AI 感知的档案"):
+        st.text(user_profile)
+
 st.title("🤿 DiveMind AI 潜水 Agent")
 
 if "messages" not in st.session_state:
@@ -694,6 +730,18 @@ if prompt := st.chat_input("问我关于潜水行程、船宿或知识点..."):
 
     # 调用 Agent 获取回答
     with st.chat_message("assistant"):
+        # 【修改点】动态构建 System 提示词补丁
+        # 我们把侧边栏的信息包装成一个“当前用户信息”告诉 AI
+        profile_context = f"\n\n[当前对话用户信息：{user_profile}]"
+
+        # 构造输入，把用户信息拼接到当前问题前面（或者作为系统消息）
+        # 这样 AI 每一轮对话都知道是在跟谁说话
+        input_data = {
+            "messages": [
+                SystemMessage(content=f"你是一个专业的潜水教练。请始终参考以下用户信息来给出建议：{profile_context}"),
+                HumanMessage(content=prompt)
+            ]
+        }
         # 配置对话 ID (用于实现记忆功能)
         config = {"configurable": {"thread_id": "diver_user_1"}}
 
