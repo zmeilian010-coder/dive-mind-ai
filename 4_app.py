@@ -692,10 +692,13 @@ with st.sidebar:
     dive_logs = st.number_input("总潜水瓶数 (Logs)", min_value=0, value=50, step=1)
 
     # 3. 偏好选择
+    # 先定义选项
+    pref_options = ["大货 (鲨鱼/Manta)", "微距 (海兔/小虾)", "放流", "沉船", "洞穴", "水下摄影"]
+
     interests = st.multiselect(
         "潜水偏好",
-        ["大货 (鲨鱼/Manta)", "微距 (海兔/小虾)", "放流", "沉船", "洞穴", "水下摄影"],
-        default=["大货"]
+        options=pref_options,
+        default=[pref_options[0]]  # 自动选第一项
     )
 
     st.divider()
