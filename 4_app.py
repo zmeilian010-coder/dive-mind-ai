@@ -14,6 +14,7 @@ from langchain_core.documents import Document
 from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI
 from langchain_huggingface import HuggingFaceEmbeddings
+from langchain_openai import OpenAIEmbeddings
 from langchain_chroma import Chroma
 from langchain_core.runnables.base import Runnable
 from langchain.tools import tool
@@ -34,8 +35,9 @@ load_dotenv()
 # RAG 系统配置
 # =======================================================
 CHROMA_PATH = "chroma"
-LOCAL_BGE_M3_MODEL_PATH = Path("E:/Python项目/dify应用的评估效果/local_bge_m3_model/bge-m3")
-RAG_EMBEDDING_MODEL_NAME = str(LOCAL_BGE_M3_MODEL_PATH)
+# LOCAL_BGE_M3_MODEL_PATH = Path("E:/Python项目/dify应用的评估效果/local_bge_m3_model/bge-m3")  云部署版本不用本地嵌入模型，改用硅基流动的云服务
+# RAG_EMBEDDING_MODEL_NAME = str(LOCAL_BGE_M3_MODEL_PATH)
+
 RAG_LLM_MODEL = "deepseek-chat"
 DEEPSEEK_BASE_URL = "https://api.deepseek.com/v1"
 
@@ -93,10 +95,11 @@ agent_llm = ChatOpenAI(
     temperature=0.0
 )
 
-embeddings = HuggingFaceEmbeddings(
-    model_name=RAG_EMBEDDING_MODEL_NAME,
-    model_kwargs={'device': 'cpu'},
-    encode_kwargs={'normalize_embeddings': True, 'batch_size': 16}
+
+embeddings = OpenAIEmbeddings(
+    model="BAAI/bge-m3", # 必须和 SiliconFlow 上的模型名一致
+    openai_api_key=st.secrets["SILICONFLOW_API_KEY"], # 从 Secrets 读取 Key
+    openai_api_base="https://api.siliconflow.cn/v1/embeddings"   # 指向 SiliconFlow 的服务器
 )
 
 if not os.path.exists(CHROMA_PATH):
