@@ -731,37 +731,44 @@ if prompt := st.chat_input("问我关于潜水行程、船宿或知识点..."):
     with st.chat_message("user"):
         st.markdown(prompt)
 
-    # 调用 Agent 获取回答
+    # --- 调用 Agent 获取回答 ---
     with st.chat_message("assistant"):
-        # 【修改点】动态构建 System 提示词补丁
-        # 我们把侧边栏的信息包装成一个“当前用户信息”告诉 AI
-        profile_context = f"\n\n[当前对话用户信息：{user_profile}]"
+        # 1. 在这里实时获取侧边栏的最新值
+        # 构造一个强力的、带有用户背景的“指令前缀”
+        context_prefix = f"""【当前访客档案 - 必须作为建议的依据】
+    - 潜水等级：{dive_level}
+    - 潜水经验：{dive_logs} 瓶
+    - 兴趣偏好：{", ".join(interests)}
+    ---
+    """
 
-        # 构造输入，把用户信息拼接到当前问题前面（或者作为系统消息）
-        # 这样 AI 每一轮对话都知道是在跟谁说话
+        # 2. 构造输入数据
+        # 我们把背景信息直接拼在用户问题的最前面，这是最强力的注入方式
         input_data = {
             "messages": [
-                SystemMessage(content=f"你是一个专业的潜水教练。请始终参考以下用户信息来给出建议：{profile_context}"),
-                HumanMessage(content=prompt)
+                HumanMessage(content=f"{context_prefix}\n请基于我的档案回答：{prompt}")
             ]
         }
-        # 配置对话 ID (用于实现记忆功能)
+
+        # 3. 执行调用
         config = {"configurable": {"thread_id": "diver_user_1"}}
 
-        # 运行 Agent
-        # 注意：这里我们给 Agent 发送消息
-        input_data = {"messages": [("user", prompt)]}
-        try:
-            result = dive_agent.invoke(input_data, config)
-        except Exception as e:
-            st.error(f"❌ 运行出错：{str(e)}")
-            # 这行会在控制台打印完整的错误，方便你在 Manage app 里的 logs 查看
-            print(f"ERROR DETAILS: {e}")
-            st.stop()
+        # 开启一个加载动画，增加专业感
+        with st.spinner("正在基于你的潜水档案生成建议..."):
+            try:
+                result = dive_agent.invoke(input_data, config)
+            except Exception as e:
+                st.error(f"❌ 运行出错：{str(e)}")
+                # 这行会在控制台打印完整的错误，方便你在 Manage app 里的 logs 查看
+                print(f"ERROR DETAILS: {e}")
+                st.stop()
 
-        # 从返回的结果中提取最后一条消息（即 AI 的回答）
-        # result["messages"] 是一个列表，[-1] 代表最后一条
+        # 4. 提取回答
         final_answer = result["messages"][-1].content
-
         st.markdown(final_answer)
+
+        # 存入聊天记录
         st.session_state.messages.append({"role": "assistant", "content": final_answer})
+
+
+
