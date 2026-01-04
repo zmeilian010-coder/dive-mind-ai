@@ -13,12 +13,10 @@ from pathlib import Path
 from langchain_core.documents import Document
 from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI
-from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_openai import OpenAIEmbeddings
 from langchain_chroma import Chroma
 from langchain_core.runnables.base import Runnable
 from langchain.tools import tool
-from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 
 from langchain.agents import create_agent
 from langgraph.checkpoint.memory import InMemorySaver
