@@ -96,7 +96,7 @@ agent_llm = ChatOpenAI(
 
 embeddings = OpenAIEmbeddings(
     model="BAAI/bge-m3",  # 必须是这个全名
-    api_key=st.secrets["SILICONFLOW_API_KEY"],  # 注意：在新版里是 api_key，不是 openai_api_key
+    api_key=os.getenv("SILICONFLOW_API_KEY"),  # 注意：在新版里是 api_key，不是 openai_api_key
     base_url="https://api.siliconflow.cn/v1/embeddings"    # 注意：在新版里是 base_url，不是 openai_api_base
 )
 
@@ -700,7 +700,13 @@ if prompt := st.chat_input("问我关于潜水行程、船宿或知识点..."):
         # 运行 Agent
         # 注意：这里我们给 Agent 发送消息
         input_data = {"messages": [("user", prompt)]}
-        result = dive_agent.invoke(input_data, config)
+        try:
+            result = dive_agent.invoke(input_data, config)
+        except Exception as e:
+            st.error(f"❌ 运行出错：{str(e)}")
+            # 这行会在控制台打印完整的错误，方便你在 Manage app 里的 logs 查看
+            print(f"ERROR DETAILS: {e}")
+            st.stop()
 
         # 从返回的结果中提取最后一条消息（即 AI 的回答）
         # result["messages"] 是一个列表，[-1] 代表最后一条
