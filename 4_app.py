@@ -675,6 +675,121 @@ def get_agent():
 # 激活 Agent
 dive_agent = get_agent()
 
+# --- 定义三种专业 UI 组件 ---
+def ui_wiki_card(doc):
+    """展示目的地百科，侧重季节、难度和看点"""
+    with st.container(border=True):
+        col1, col2 = st.columns([1, 3])
+        with col1:
+            st.markdown("### 🗺️")
+            st.markdown(f"**{doc.metadata.get('locationName', '目的地')}**")
+        with col2:
+            # 使用 Emoji 模拟标签
+            difficulty = doc.metadata.get('experience', '未知')
+            season = doc.metadata.get('departureMonth', '全年')
+            st.markdown(f"**难度:** `{difficulty}` | **最佳季节:** `{season}月`")
+            st.markdown(f"**必看生物:** {doc.metadata.get('nameCN', '各种海洋生物')}")
+
+        # 针对用户等级的温馨提示
+        user_lv = st.session_state.get('user_level', 'OW')
+        if "难" in str(difficulty) and user_lv == "OW":
+            st.warning("⚠️ 此地流大，建议考取 AOW 或积累更多瓶数后再前往。")
+
+def ui_trip_card(doc):
+    """展示船宿信息，侧重日期、价格、跳转"""
+    with st.container(border=True):
+        c1, c2, c3 = st.columns([2, 1, 1])
+        with c1:
+            name = doc.metadata.get('nameCN', '精品船宿')
+            date = doc.metadata.get('departureDate_display', '近期出发')
+            st.markdown(f"**🚢 {name}**")
+            st.caption(f"📅 出发日期: {date}")
+        with c2:
+            price = doc.metadata.get('price', '电询')
+            st.markdown(f"**💰 {price}**")
+            st.caption("起/人")
+        with c3:
+            # 这里的链接你可以根据你的数据动态生成
+            st.link_button("查看详情", "https://cooldive.com", use_container_width=True)
+
+def ui_knowledge_card(doc):
+    """展示复习知识点，侧重权威性和教练建议"""
+    st.info(f"💡 **划重点**: {doc.page_content[:200]}...")
+    with st.expander("📖 查看完整手册说明"):
+        st.write(doc.page_content)
+        st.caption("来源：专业潜水教学手册")
+
+# --- 根据文档的 category 自动选择组件 ---#
+def render_adaptive_ui(docs):
+    """
+    智能 UI 匹配器：根据元数据特征自动选择模板
+    """
+    if not docs:
+        return
+
+    st.divider()
+
+    # 将 3 个船宿子类定义为一个集合，方便判断
+    LIVEABOARD_CATS = {"船宿船舶信息", "船宿路线", "船宿行程"}
+
+    for i, doc in enumerate(docs[:3]):  # 每次最多展示 3 个组件，防止页面太乱
+        meta = doc.metadata
+        category = meta.get("category", "通用")
+
+        # --- 策略 A：船宿类模板 (精确匹配已知的大类) ---
+        if category in LIVEABOARD_CATS or "price" in meta:
+            render_trip_card(doc, i)
+
+        # --- 策略 B：百科类模板 (识别特征字段：locationName) ---
+        elif "locationName" in meta:
+            render_wiki_card(doc, i)
+
+        # --- 策略 C：通用知识模板 (兜底方案) ---
+        else:
+            render_knowledge_card(doc, i)
+
+
+# --- 具体的组件实现（更加通用化） ---
+
+def render_trip_card(doc, idx):
+    """交易型卡片：突出价格和日期"""
+    with st.container(border=True):
+        st.caption(f"🚢 {doc.metadata.get('category', '船宿信息')}")
+        c1, c2 = st.columns([3, 1])
+        with c1:
+            st.markdown(f"**{doc.metadata.get('nameCN', '未命名航线')}**")
+            date = doc.metadata.get('departureDate_display', '请咨询客服')
+            st.markdown(f"📅 出发日期: `{date}`")
+        with c2:
+            price = doc.metadata.get('price', '电询')
+            st.button(f"💰{price}", key=f"trip_{idx}")
+
+
+def render_wiki_card(doc, idx):
+    """百科型卡片：展示标签云"""
+    with st.container(border=True):
+        st.caption(f"🗺️ {doc.metadata.get('category', '目的地百科')}")
+        st.markdown(f"#### {doc.metadata.get('locationName', '未名地点')}")
+
+        # 动态提取所有元数据作为标签展示 (去除掉已知的长字段)
+        tags = []
+        for k in ["experience", "departureMonth", "rating", "dives"]:
+            if k in doc.metadata:
+                tags.append(f"#{doc.metadata[k]}")
+
+        if tags:
+            st.markdown(" ".join([f"`{t}`" for t in tags]))
+        st.write(f"{doc.page_content[:100]}...")
+
+
+def render_knowledge_card(doc, idx):
+    """复习型卡片：重点展示文字内容"""
+    with st.chat_message("ai", avatar="💡"):
+        st.caption(f"📚 知识点: {doc.metadata.get('category', '潜水百科')}")
+        st.markdown(doc.page_content)
+        if "source" in doc.metadata:
+            st.caption(f"来源: {doc.metadata['source']}")
+
 # --- 4. Streamlit 界面逻辑 ---
 # --- 侧边栏：潜水员档案 ---
 with st.sidebar:
@@ -766,6 +881,12 @@ if prompt := st.chat_input("问我关于潜水行程、船宿或知识点..."):
         # 4. 提取回答
         final_answer = result["messages"][-1].content
         st.markdown(final_answer)
+
+        # 3. 提取并渲染卡片
+        # 假设你的 Agent 逻辑中会将检索到的 docs 存在最后一个 message 的特定字段或全局 state 中
+        # 如果你的 invoke 结果里有 docs，就传给渲染器
+        if "source_documents" in result: # 这里取决于你具体的返回结构
+            render_adaptive_ui({"source_documents": result["source_documents"]})
 
         # 存入聊天记录
         st.session_state.messages.append({"role": "assistant", "content": final_answer})
