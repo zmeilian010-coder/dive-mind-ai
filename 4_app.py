@@ -928,15 +928,12 @@ if prompt := st.chat_input("问我关于潜水行程、船宿或知识点..."):
         final_answer = result["messages"][-1].content
         st.markdown(final_answer)
 
-        # 5.AI 说完后，我们检查“篮子”里有没有工具塞进来的文档
+        # --- 【增加这一行调试代码】 ---
+        st.write("DEBUG：篮子里现在的文档数量是：", len(st.session_state.get("last_retrieved_docs", [])))
+        # ---------------------------
 
-        # 使用 .get() 是为了防止这个 key 还没被初始化
-        retrieved_docs = st.session_state.get("last_retrieved_docs", [])
         if st.session_state.get("last_retrieved_docs"):
-            # 调用你之前写的渲染函数，把“篮子”里的文档传进去
             render_adaptive_ui(st.session_state.last_retrieved_docs)
-
-            # 渲染完了，把“篮子”清空，准备下一轮
             st.session_state.last_retrieved_docs = []
 
         # 存入聊天记录
