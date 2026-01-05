@@ -326,6 +326,18 @@ def retrieve_tours(
         return "未找到相关路线信息。"
 
     final_docs = final_docs[:5]
+
+    # === 【新增：把格式化前的原始文档传给前端渲染卡片】 ===
+    import streamlit as st
+    # 检查 session_state 里有没有这个“篮子”，没有就建一个
+    if "last_retrieved_docs" not in st.session_state:
+        st.session_state.last_retrieved_docs = []
+
+    # 把这次找到的 final_docs 整个放进“篮子”里
+    # 注意：我们存的是原始的 Document 对象列表，包含了所有的元数据
+    st.session_state.last_retrieved_docs.extend(final_docs)
+    # =====================================
+
     return _format_docs(final_docs)
 
 
@@ -426,6 +438,18 @@ def retrieve_trips(
 
     # 限制最终返回给 Agent 的文档数量，例如回到 k=5
     final_docs = final_docs[:5]
+
+    # === 【新增：把格式化前的原始文档传给前端渲染卡片】 ===
+    import streamlit as st
+    # 检查 session_state 里有没有这个“篮子”，没有就建一个
+    if "last_retrieved_docs" not in st.session_state:
+        st.session_state.last_retrieved_docs = []
+
+    # 把这次找到的 final_docs 整个放进“篮子”里
+    # 注意：我们存的是原始的 Document 对象列表，包含了所有的元数据
+    st.session_state.last_retrieved_docs.extend(final_docs)
+    # =====================================
+
     return _format_docs(final_docs)
 
 
@@ -493,7 +517,6 @@ def retrieve_boats(
 
     print(f"[检索工具将尝试使用以下合法的 ChromaDB 过滤条件: {chroma_filters}]")
     # ====================================================================
-    # ====================================================================
 
     retriever = rag_db.as_retriever(search_kwargs={"k": 10, "filter": chroma_filters})  # 调大k以应对后处理
     initial_docs: List[Document] = retriever.invoke(query)
@@ -518,6 +541,18 @@ def retrieve_boats(
 
     # 限制最终返回给 Agent 的文档数量，例如回到 k=5
     final_docs = final_docs[:5]
+
+    # === 【新增：把格式化前的原始文档传给前端渲染卡片】 ===
+    import streamlit as st
+    # 检查 session_state 里有没有这个“篮子”，没有就建一个
+    if "last_retrieved_docs" not in st.session_state:
+        st.session_state.last_retrieved_docs = []
+
+    # 把这次找到的 final_docs 整个放进“篮子”里
+    # 注意：我们存的是原始的 Document 对象列表，包含了所有的元数据
+    st.session_state.last_retrieved_docs.extend(final_docs)
+    # =====================================
+
     return _format_docs(final_docs)
 
 
@@ -567,6 +602,17 @@ def retrieve_general_knowledge(
     if not final_docs:
         print("[retrieve_general_knowledge 工具未找到相关通用知识。]")
         return "未从知识库中检索到相关通用知识。"
+
+    # === 【新增：把格式化前的原始文档传给前端渲染卡片】 ===
+    import streamlit as st
+    # 检查 session_state 里有没有这个“篮子”，没有就建一个
+    if "last_retrieved_docs" not in st.session_state:
+        st.session_state.last_retrieved_docs = []
+
+    # 把这次找到的 final_docs 整个放进“篮子”里
+    # 注意：我们存的是原始的 Document 对象列表，包含了所有的元数据
+    st.session_state.last_retrieved_docs.extend(final_docs)
+    # =====================================
 
     formatted_docs = format_docs(final_docs)
     print(f"[retrieve_general_knowledge 工具返回了 {len(final_docs)} 个文档，内容片段: {formatted_docs[:200]}...]")
@@ -882,11 +928,16 @@ if prompt := st.chat_input("问我关于潜水行程、船宿或知识点..."):
         final_answer = result["messages"][-1].content
         st.markdown(final_answer)
 
-        # 3. 提取并渲染卡片
-        # 假设你的 Agent 逻辑中会将检索到的 docs 存在最后一个 message 的特定字段或全局 state 中
-        # 如果你的 invoke 结果里有 docs，就传给渲染器
-        if "source_documents" in result: # 这里取决于你具体的返回结构
-            render_adaptive_ui({"source_documents": result["source_documents"]})
+        # 5.AI 说完后，我们检查“篮子”里有没有工具塞进来的文档
+
+        # 使用 .get() 是为了防止这个 key 还没被初始化
+        retrieved_docs = st.session_state.get("last_retrieved_docs", [])
+        if st.session_state.get("last_retrieved_docs"):
+            # 调用你之前写的渲染函数，把“篮子”里的文档传进去
+            render_adaptive_ui(st.session_state.last_retrieved_docs)
+
+            # 渲染完了，把“篮子”清空，准备下一轮
+            st.session_state.last_retrieved_docs = []
 
         # 存入聊天记录
         st.session_state.messages.append({"role": "assistant", "content": final_answer})
