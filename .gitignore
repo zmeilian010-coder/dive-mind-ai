@@ -1,0 +1,38 @@
+# --- 系统与临时文件 ---
+PythonProject/
+__pycache__/
+*.pyc
+.DS_Store
+.idea/
+.vscode/
+*.bat
+
+# --- 敏感信息 (绝对不准上传) ---
+.env
+.streamlit/
+user_memory/
+data/user_memory/
+
+# --- 原始语料与中间数据 (体积大且私密) ---
+data/processed_data/
+data/raw_data
+data/docs/
+*.xlsx
+*.pdf
+
+#---草稿数据---
+archive/
+
+#---测评数据---
+evaluation
+
+# --- 向量数据库策略 ---
+# 1. 默认排除所有数据库文件夹
+data/db_local/
+data/db_cloud/siliconflow/ProBAAIbge-m3/
+
+
+# 2. 只有 v2 版本（准备上云的）开绿灯
+!data/db_cloud/siliconflow/bge-m3/v2/
+
+# 如果你以后想传 v3，就在下面再加一行 !data/db_cloud/.../v3/
