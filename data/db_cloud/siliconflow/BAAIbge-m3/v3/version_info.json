@@ -1,0 +1,23 @@
+{
+    "version": "v3",
+    "create_time": "2026-01-25 21:20:11",
+    "embedding_model": "BAAI/bge-m3",
+    "git_commit": "caa9534",
+    "manual_notes": "手动整理MD文件后第一次重建知识库：重新整理MD文件的4级headers；增加审计日志功能，记录每个知识库版本的关键信息。",
+    "parameters": {
+        "chunk_size": 800,
+        "chunk_overlap": 100,
+        "header_splitting": "H1-H4"
+    },
+    "statistics": {
+        "total_chunks_in_db": 1250,
+        "processed_files_count": 5,
+        "file_distribution": {
+            "OW教材.md": 487,
+            "专业术语对照.md": 21,
+            "亚洲潜点-知识库.xlsx": 44,
+            "潜水宝典.md": 675,
+            "cooldive_liveaboard_chunks_data_1-10.json": 23
+        }
+    }
+}
