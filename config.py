@@ -48,7 +48,7 @@ if EMBEDDING_MODE == "LOCAL":
     CHROMA_PATH = str(DATA_DIR / "db_local" / "local_model" / "bge-m3" / ACTIVE_DB_VERSION)
 else:
     # 指向硅基流动 API 生成的索引
-    CHROMA_PATH = str(DATA_DIR / "db_cloud" / "siliconflow" / "BAAIbge-m3" / ACTIVE_DB_VERSION)
+    CHROMA_PATH = str(DATA_DIR / "db_cloud" / "sili" / "BAAIbge-m3" / ACTIVE_DB_VERSION)
 
 # 增量更新状态文件路径 (与数据库版本绑定)
 DOC_STATUS_FILE = os.path.join(CHROMA_PATH, "document_status.json")

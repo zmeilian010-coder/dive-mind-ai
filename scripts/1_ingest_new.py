@@ -16,6 +16,9 @@ import config
 from langchain_openai import OpenAIEmbeddings
 import streamlit as st
 import re
+import chromadb
+import time
+import shutil
 
 load_dotenv()
 
@@ -206,27 +209,22 @@ def create_database(incremental_update: bool = INCREMENTAL_UPDATE_DEFAULT):  # �
 
     # --- 全量更新逻辑修正 ---
     db_instance = None # 声明 db_instance 但不立即初始化
-    if not incremental_update:  # 如果不是增量更新，就是全量重建
+
+    if not incremental_update:  # 全量重建
         if os.path.exists(CHROMA_PATH):
-            print(f"--- [{datetime.datetime.now()}] 全量重建模式：正在删除旧的 ChromaDB 文件夹: {CHROMA_PATH} ---")
-            # 确保在初始化 Chroma 实例之前执行删除操作
+            print(f"--- [{datetime.datetime.now()}] 全量重建模式：正在清理旧路径 ---")
             shutil.rmtree(CHROMA_PATH)
-            print("旧的 ChromaDB 文件夹已删除。")
-        else:
-            print("--- 全量重建模式：ChromaDB 文件夹不存在，将新建。 ---")
 
-        # 此时才初始化一个全新的 Chroma 实例，确保它操作的是一个不存在或刚被删除的目录
+        # 使用 client 方式初始化
         db_instance = Chroma(persist_directory=CHROMA_PATH, embedding_function=embeddings)
-        current_document_status = {}  # 全量重建清空旧状态
-        print("新的 ChromaDB 已初始化，开始重建。")
+        current_document_status = {}
+        print("新的 ChromaDB 已初始化。")
     else:  # 增量更新模式
-        print("--- 增量更新模式：将检查文档修改并更新。 ---")
-        # 增量更新模式下，ChromaDB 必须存在。初始化 Chroma 实例来打开现有数据库。
+        print("--- 增量更新模式 ---")
         if not os.path.exists(CHROMA_PATH):
-            raise FileNotFoundError(
-                f"ChromaDB 路径 '{CHROMA_PATH}' 不存在。增量更新需要一个现有的数据库。请先进行全量重建。")
+            raise FileNotFoundError(f"找不到路径 {CHROMA_PATH}，请先执行全量重建。")
 
-        # 增量模式下，初始化 Chroma 实例来打开现有数据库
+        # 使用 client 方式加载
         db_instance = Chroma(persist_directory=CHROMA_PATH, embedding_function=embeddings)
         print("现有 ChromaDB 已加载。")
 
@@ -556,6 +554,77 @@ def create_database(incremental_update: bool = INCREMENTAL_UPDATE_DEFAULT):  # �
         else:
             print("没有文档块需要增量更新或添加。")
 
+    # --- 【核心修复：强制构建 .bin 索引并落盘】 ---
+    if db_instance:
+        print("🛠️ 正在强制构建 HNSW 向量索引段...")
+        # 必须搜索一次，Chroma 才会启动后台线程把内存里的向量写成 .bin 文件
+        db_instance.similarity_search("test search", k=1)
+
+        # 2. 获取数量前先强制让进程睡 2 秒 (给后台 IO 留时间)
+
+        time.sleep(2)
+
+        final_count = db_instance._collection.count()
+        print(f"✅ 成功！当前库内文档数: {final_count}")
+
+        # =======================================================
+        # 步骤 5: 自动化版本审计 (生成 version_info.json)
+        # =======================================================
+        print("\n" + "=" * 30)
+        print("📝 正在生成本次构建的审计日志...")
+
+        # 获取 Git Commit ID (如果报错则返回未知)
+        import subprocess
+        try:
+            git_hash = subprocess.check_output(['git', 'rev-parse', '--short', 'HEAD']).decode('ascii').strip()
+        except:
+            git_hash = "No Git Repo"
+
+        # 处理手动备注：Config优先，否则屏幕输入
+        manual_note = getattr(config, 'CURRENT_VERSION_NOTE', None)
+        if not manual_note:
+            manual_note = input("👉 请输入本次版本的备注说明（直接回车跳过）: ")
+            if not manual_note: manual_note = "无备注"
+
+        if config.EMBEDDING_MODE == "LOCAL":
+            # 这里的 RAG_EMBEDDING_MODEL_NAME 对应你脚本里定义的本地路径变量
+            actual_model_name = RAG_EMBEDDING_MODEL_NAME
+        else:
+            # 对应 config.py 里的云端模型名
+            actual_model_name = config.EMBEDDING_MODEL_CLOUD
+
+        audit_payload = {
+            "version": config.ACTIVE_DB_VERSION,
+            "create_time": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "embedding_model": actual_model_name,
+            "git_commit": git_hash,
+            "manual_notes": manual_note,
+            "parameters": {
+                "chunk_size": 800,
+                "chunk_overlap": 100,
+                "header_splitting": "H1-H4"
+            },
+            "statistics": {
+                "total_chunks_in_db": db_instance._collection.count(),
+             #   "processed_files_count": len(final_document_status_to_save),
+                "file_distribution": file_distribution  # 使用我们在循环中累加的字典
+            }
+        }
+
+        # 自动保存到当前数据库所在目录
+        audit_path = os.path.join(CHROMA_PATH, "version_info.json")
+        with open(audit_path, 'w', encoding='utf-8') as f:
+            json.dump(audit_payload, f, ensure_ascii=False, indent=4)
+
+        print(f"🏆 审计日志已存至: {audit_path}")
+        print("=" * 30 + "\n")
+
+        # 显式删除引用，强制 Python 触发析构函数完成文件写入
+        db_instance = None
+        import gc
+        gc.collect()
+        print("📥 数据库连接已安全切断，索引已持久化。")
+
     print(f"--- [{datetime.datetime.now()}] 索引创建完成！ ---")
 
     # --- 保存最终的文档状态 (无论增量还是全量) ---
@@ -612,58 +681,6 @@ def create_database(incremental_update: bool = INCREMENTAL_UPDATE_DEFAULT):  # �
 
     save_document_status(final_document_status_to_save)
     print(f"--- [{datetime.datetime.now()}] 文档处理状态已保存到 '{DOCUMENT_STATUS_FILE}'。 ---")
-
-    # =======================================================
-    # 步骤 5: 自动化版本审计 (生成 version_info.json)
-    # =======================================================
-    print("\n" + "=" * 30)
-    print("📝 正在生成本次构建的审计日志...")
-
-    # 获取 Git Commit ID (如果报错则返回未知)
-    import subprocess
-    try:
-        git_hash = subprocess.check_output(['git', 'rev-parse', '--short', 'HEAD']).decode('ascii').strip()
-    except:
-        git_hash = "No Git Repo"
-
-    # 处理手动备注：Config优先，否则屏幕输入
-    manual_note = getattr(config, 'CURRENT_VERSION_NOTE', None)
-    if not manual_note:
-        manual_note = input("👉 请输入本次版本的备注说明（直接回车跳过）: ")
-        if not manual_note: manual_note = "无备注"
-
-    if config.EMBEDDING_MODE == "LOCAL":
-        # 这里的 RAG_EMBEDDING_MODEL_NAME 对应你脚本里定义的本地路径变量
-        actual_model_name = RAG_EMBEDDING_MODEL_NAME
-    else:
-        # 对应 config.py 里的云端模型名
-        actual_model_name = config.EMBEDDING_MODEL_CLOUD
-
-    audit_payload = {
-        "version": config.ACTIVE_DB_VERSION,
-        "create_time": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "embedding_model": actual_model_name,
-        "git_commit": git_hash,
-        "manual_notes": manual_note,
-        "parameters": {
-            "chunk_size": 800,
-            "chunk_overlap": 100,
-            "header_splitting": "H1-H4"
-        },
-        "statistics": {
-            "total_chunks_in_db": db_instance._collection.count(),
-            "processed_files_count": len(final_document_status_to_save),
-            "file_distribution": file_distribution  # 使用我们在循环中累加的字典
-        }
-    }
-
-    # 自动保存到当前数据库所在目录
-    audit_path = os.path.join(CHROMA_PATH, "version_info.json")
-    with open(audit_path, 'w', encoding='utf-8') as f:
-        json.dump(audit_payload, f, ensure_ascii=False, indent=4)
-
-    print(f"🏆 审计日志已存至: {audit_path}")
-    print("=" * 30 + "\n")
 
 if __name__ == "__main__":
     create_database(incremental_update=INCREMENTAL_UPDATE_DEFAULT)  # <-- 使用顶部配置变量
