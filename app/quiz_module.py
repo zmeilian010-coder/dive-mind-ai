@@ -1,3 +1,4 @@
+# quiz_model.py
 import streamlit as st
 import random
 import json
@@ -6,7 +7,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 import models
 import state_manager
 import config
-
+from langchain_core.documents import Document
 # 获取模型和数据库实例
 slm_parser, agent_llm, rag_db = models.get_models()
 
@@ -39,7 +40,7 @@ def get_quiz_pool():
     )
     if quiz_docs['documents']:
         # 包装成 Document 对象并随机选 5 个
-        all_quizzes = [models.Document(page_content=d, metadata=m)
+        all_quizzes = [Document(page_content=d, metadata=m)
                        for d, m in zip(quiz_docs['documents'], quiz_docs['metadatas'])]
         random.shuffle(all_quizzes)
         final_pool.extend(all_quizzes[:5])
@@ -101,7 +102,7 @@ def generate_question_json(doc):
 
 
 def render_quiz_page():
-    st.title("随时复习")
+    st.title("🧠 Buddy 知识练兵场")
 
     # 1. 初始化复习进度
     if "quiz_pool" not in st.session_state or not st.session_state.quiz_pool:
