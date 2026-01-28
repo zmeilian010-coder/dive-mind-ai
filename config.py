@@ -1,6 +1,8 @@
 # config.py
 import os
+import streamlit as st
 from pathlib import Path
+from dotenv import load_dotenv
 
 # =======================================================
 # 1. 环境自感知与模式切换 (Environment & Mode)
@@ -59,7 +61,7 @@ MARKDOWN_DOC_VERSION = "1.0"
 
 # --- 外部数据文件 ---
 # 假设这个 Excel 放在 data/processed 目录下
-EXTERNAL_METADATA_EXCEL = DATA_DIR / "processed_data" / "chunks_with_category.xlsx"
+EXTERNAL_METADATA_EXCEL = DATA_DIR / "processed" / "chunks_with_category.xlsx"
 EXTERNAL_METADATA_CHUNK_ID_COL = "Chunk_ID_Hash"
 EXTERNAL_METADATA_CATEGORY_COL = "Category"
 
@@ -82,6 +84,23 @@ RAG_LLM_MODEL = "deepseek-chat"
 # --- 本地模型配置 (仅脚本本地运行时有效) ---
 LOCAL_BGE_PATH = Path("E:/Python项目/dify应用的评估效果/local_bge_m3_model/bge-m3")
 
+# --- 获取API key ---
+ROOT_DIR = Path(__file__).resolve().parent
+
+# 2. 强行加载根目录下的 .env 文件
+env_path = ROOT_DIR / ".env"
+load_dotenv(dotenv_path=env_path)
+def get_secret(key_name):
+    try:
+        return st.secrets[key_name]
+    except:
+        return os.getenv(key_name)
+
+SILICONFLOW_API_KEY = get_secret("SILICONFLOW_API_KEY")
+DEEPSEEK_API_KEY = get_secret("DEEPSEEK_API_KEY")
+
+if not SILICONFLOW_API_KEY:
+    print(f"❌ 严重警告：未能从 {env_path} 加载到 SILICONFLOW_API_KEY")
 # =======================================================
 # 7. 提示词 (Prompts)
 # =======================================================

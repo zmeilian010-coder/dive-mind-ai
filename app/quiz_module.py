@@ -12,15 +12,15 @@ from langchain_core.documents import Document
 slm_parser, agent_llm, rag_db = models.get_models()
 
 
-# --- 1. 抽题引擎：打捞 10 个原始知识块 ---
+# --- 1. 抽题引擎：检索 10 个原始知识块 ---
 def get_quiz_pool():
-    """根据优先级打捞 10 个知识块"""
+    """根据优先级检索 10 个知识块"""
     profile = st.session_state.user_profile
     incidents = profile.get("incident_history", [])
 
     final_pool = []
 
-    # 【优先级 1】针对意外记录进行打捞
+    # 【优先级 1】针对意外记录进行检索
     if incidents:
         # 取最近的 2 条意外作为关键词搜索
         search_query = " ".join(incidents[-2:])
@@ -31,9 +31,9 @@ def get_quiz_pool():
             filter={"Metadata_file_type": "md"}
         )
         final_pool.extend(incident_docs)
-        print(f"🎯 优先级 1：基于意外记录打捞了 {len(incident_docs)} 个知识块")
+        print(f"🎯 优先级 1：基于意外记录检索了 {len(incident_docs)} 个知识块")
 
-    # 【优先级 2】打捞带习题标签的块 (is_quiz=True)
+    # 【优先级 2】检索带习题标签的块 (is_quiz=True)
     quiz_docs = rag_db.get(
         where={"is_quiz": True},
         limit=20
@@ -44,10 +44,11 @@ def get_quiz_pool():
                        for d, m in zip(quiz_docs['documents'], quiz_docs['metadatas'])]
         random.shuffle(all_quizzes)
         final_pool.extend(all_quizzes[:5])
-        print(f"📚 优先级 2：打捞了 {len(all_quizzes[:5])} 个预设习题块")
+        print(f"📚 优先级 2：检索了 {len(all_quizzes[:5])} 个预设习题块")
 
     # 【优先级 3】随机补位 (从通用 MD 库抽)
     if len(final_pool) < 10:
+        print("因召回不足10个，需要随机补位")
         needed = 10 - len(final_pool)
         # 排除掉不需要出题的分类（黑名单逻辑）
         random_docs = rag_db.similarity_search(
@@ -77,7 +78,7 @@ def generate_question_json(doc):
         要求：
         - question: 题干
         - options: [A.xx, B.xx, C.xx, D.xx] 形式的列表
-        - answer: 仅返回正确选项的字母（如 "B"）
+        - answer: 仅返回正确选项的字母（如 "B"或者"B,C"）
         - explanation: 简短的解析
         """
     else:
@@ -88,7 +89,7 @@ def generate_question_json(doc):
         - 出一道单选题。
         - 必须是场景化的（例如：你在水下遇到了XX情况...）。
         - 干扰项要具有迷惑性，但不能模棱两可。
-        - 必须返回 JSON：{{"question": "", "options": ["A.xx", "B.xx", "C.xx", "D.xx"], "answer": "字母", "explanation": ""}}
+        - 必须返回 JSON：{{"question": "", "options": ["A.xx", "B.xx", "C.xx", "D.xx"], "answer": 仅返回正确选项的字母（如 "B"或者"B,C"）, "explanation": ""}}
         """
 
     try:
@@ -96,92 +97,105 @@ def generate_question_json(doc):
         # 清洗并解析 JSON (复用之前的正则逻辑)
         content = response.content.strip()
         json_str = re.search(r'\{.*\}', content, re.DOTALL).group()
-        return json.loads(json_str)
+        data = json.loads(json_str)
+        data["raw_content"] = doc.page_content
+        return data
     except:
         return None
 
 
-def render_quiz_page():
-    st.title("🧠 Buddy 知识练兵场")
+# --- 3. 预加载所有题目 (解决刷新慢) ---
+def preload_questions(raw_pool):
+    processed_questions = []
+    progress_bar = st.progress(0, text="Buddy 正在为你备课...")
 
-    # 1. 初始化复习进度
+    for i, doc in enumerate(raw_pool):
+        q = generate_question_json(doc)
+        if q:
+            processed_questions.append(q)
+        progress_bar.progress((i + 1) / len(raw_pool), text=f"正在生成第 {i + 1}/10 题...")
+
+    progress_bar.empty()
+    return processed_questions
+
+# --- 4. 主渲染函数 ---
+def render_quiz_page():
     if "quiz_pool" not in st.session_state or not st.session_state.quiz_pool:
-        with st.spinner("Buddy 正在根据你的档案和意外记录为你备课..."):
-            st.session_state.quiz_pool = get_quiz_pool()
-            st.session_state.quiz_step = 0
-            st.session_state.score_box = {"correct": 0, "wrong": 0}
-            st.session_state.wrong_log = []
-            st.session_state.quiz_stage = "asking"
+        raw_pool = get_quiz_pool()
+        st.session_state.quiz_pool = preload_questions(raw_pool)
+        st.session_state.quiz_step = 0
+        st.session_state.score_box = {"correct": 0, "wrong": 0}
+        st.session_state.wrong_log = []
+        st.session_state.quiz_stage = "asking"
         st.rerun()
 
-    # 2. 如果 10 题做完了，显示总结报告
-    if st.session_state.quiz_step >= 10:
+    if st.session_state.quiz_step >= len(st.session_state.quiz_pool):
         render_summary()
         return
 
-    # 3. 获取当前题目
-    current_idx = st.session_state.quiz_step
-    # 缓存题目数据，防止重复调用 AI
-    if "current_q_data" not in st.session_state:
-        chunk = st.session_state.quiz_pool[current_idx]
-        q_data = generate_question_json(chunk)
-        if not q_data:  # 如果生成失败，跳过这一题
-            st.session_state.quiz_step += 1
-            st.rerun()
-        # 存入题目数据，并带上原文用于复盘
-        q_data["raw_content"] = chunk.page_content
-        q_data["images"] = chunk.metadata.get("images")
-        st.session_state.current_q_data = q_data
+    q = st.session_state.quiz_pool[st.session_state.quiz_step]
 
-    q = st.session_state.current_q_data
-
-    # --- 开始渲染界面 ---
-    st.progress(st.session_state.quiz_step / 10, text=f"进度: 第 {st.session_state.quiz_step + 1} / 10 题")
+    # --- 界面展示 ---
+    st.title("🧠 Buddy 知识练兵场")
+    st.progress(st.session_state.quiz_step / len(st.session_state.quiz_pool))
 
     with st.container(border=True):
-        st.markdown(f"#### Q{st.session_state.quiz_step + 1}: {q['question']}")
-        if q.get("images"):
-            # 如果有图，显示第一张
-            st.image(q["images"].split(",")[0], caption="参考图示")
+        st.markdown(f"**第 {st.session_state.quiz_step + 1} 题**")
+        st.subheader(q['question'])
 
         # 答题阶段
+        q_type = q.get('type', 'single')
         if st.session_state.quiz_stage == "asking":
-            # 动态生成 4 个按钮
-            for opt in q['options']:
-                if st.button(opt, use_container_width=True):
-                    # 判断对错
-                    user_choice = opt[0]  # 取 A, B, C, D
-                    if user_choice == q['answer']:
+            if q_type == "multiple":
+                st.info("这是一道多选题，请勾选所有正确答案后点击提交。")
+                selected = []
+                for opt in q['options']:
+                    if st.checkbox(opt, key=f"q_{st.session_state.quiz_step}_{opt}"):
+                        selected.append(opt[0])  # 抓取 A, B, C
+
+                if st.button("提交回答", type="primary"):
+                    st.session_state.user_answer = sorted(selected)
+                    st.session_state.is_correct = (st.session_state.user_answer == sorted(q['answer']))
+                    if st.session_state.is_correct:
                         st.session_state.score_box["correct"] += 1
-                        st.session_state.last_result = "✅ 太棒了，完全正确！"
                     else:
                         st.session_state.score_box["wrong"] += 1
-                        st.session_state.last_result = f"❌ 哎呀，这题选 {q['answer']} 哦。"
-                        # 记录错题
-                        st.session_state.wrong_log.append(f"题目: {q['question']} | 正确答案: {q['answer']}")
-
+                        st.session_state.wrong_log.append(q['question'])
                     st.session_state.quiz_stage = "feedback"
                     st.rerun()
-
-            if st.button("⏭️ 换一题"):
-                del st.session_state.current_q_data
-                st.session_state.quiz_step += 1
-                st.rerun()
+            else:
+                # 单选题使用按钮，点击即确认
+                for opt in q['options']:
+                    if st.button(opt, use_container_width=True, key=f"btn_{st.session_state.quiz_step}_{opt}"):
+                        st.session_state.user_answer = [opt[0]]
+                        st.session_state.is_correct = (opt[0] in q['answer'])
+                        if st.session_state.is_correct:
+                            st.session_state.score_box["correct"] += 1
+                        else:
+                            st.session_state.score_box["wrong"] += 1
+                            st.session_state.wrong_log.append(q['question'])
+                        st.session_state.quiz_stage = "feedback"
+                        st.rerun()
 
         # 反馈阶段
         else:
-            if "✅" in st.session_state.last_result:
-                st.success(st.session_state.last_result)
+            if st.session_state.is_correct:
+                st.success("✅ 完全正确！Buddy 为你点赞！")
             else:
-                st.error(st.session_state.last_result)
+                st.error(f"❌ 选错啦。正确答案是：{', '.join(q['answer'])}")
+                st.write(
+                    f"你的回答：{', '.join(st.session_state.user_answer) if st.session_state.user_answer else '未选择'}")
 
-            st.markdown(f"**Buddy 的解析：** {q['explanation']}")
+            st.markdown(f"💡 **解析：** {q['explanation']}")
 
-            with st.expander("📖 查看手册原文复盘"):
-                st.info(q['raw_content'])
+            # 解决问题 1：如果是预设习题，不显示原文，避免泄露后续题目
+            if not q.get("is_premade"):
+                with st.expander("📖 查看手册原文复盘"):
+                    st.info(q['raw_content'])
+            else:
+                st.caption("注：此题来自教材原题库，建议查阅相关章节手册深度复习。")
 
-            if st.button("➡️ 继续下一题", type="primary"):
-                del st.session_state.current_q_data
+            if st.button("下一题 ➡️", use_container_width=True):
                 st.session_state.quiz_step += 1
                 st.session_state.quiz_stage = "asking"
                 st.rerun()
