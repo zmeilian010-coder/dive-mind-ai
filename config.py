@@ -28,7 +28,7 @@ RAW_DATA_A = RAW_DATA_DIR / "cooldive_boat_details_with_trips_1-10.json"
 CRAWLER_STATE_FILE = RAW_DATA_DIR / "crawled_boat_ids.json"
 
 # --- 清洗数据层 (Processed) ---
-PROCESSED_DATA_DIR = DATA_DIR / "processed_data"
+PROCESSED_DATA_DIR = DATA_DIR / "processed"
 
 # --- 用户记忆存储路径 ---
 
@@ -38,7 +38,7 @@ USER_MEMORY_DIR = DATA_DIR / "user_memory"
 # 4. 向量数据库 (Vector DB Path Logic)
 # =======================================================
 # 数据库版本控制
-ACTIVE_DB_VERSION = "v3"  # <-- 在这里修改版本号
+ACTIVE_DB_VERSION = "v4"  # <-- 在这里修改版本号
 
 # --- 配置模式选择 ---
 # 设置为 True 进行增量更新 (只处理修改过的文件和新文件)
@@ -203,6 +203,21 @@ BUDDY_RESPONSE_PROMPT = """
 
     """
 
+# --- 复习模块大模型DeepSeek 总结提示词 ---
+
+QUIZ_SUMMARY_TEMPLATE = """
+用户刚完成一轮 10 题的潜水复习，结果如下：
+- 答对：{correct_count} 题
+- 答错：{wrong_count} 题
+- 错题涉及领域：{wrong_categories}
+- 错题干摘要：{wrong_questions}
+
+请你以潜伴 Buddy 的口吻，为用户写一段 150 字以内的复盘总结。
+要求：
+1. 指出用户现在的理论弱项（根据涉及领域分析）。
+2. 给出 1-2 条具体的改进建议。
+3. 语气要温暖、鼓励，不要说教。
+"""
 # =======================================================
 # 8. 自动化目录检查
 # =======================================================

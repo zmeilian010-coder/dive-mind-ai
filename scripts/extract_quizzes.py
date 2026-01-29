@@ -26,25 +26,20 @@ from langchain_core.documents import Document
 # 核心功能逻辑
 # =======================================================
 
-def generate_stable_id(parent_id: str, text: str) -> str:
-    """根据父块ID和题目内容生成稳定的唯一ID"""
-    content_hash = hashlib.md5(text.encode('utf-8')).hexdigest()[:8]
-    return f"qz_{parent_id[:6]}_{content_hash}"
-
-
-def parse_single_question(text: str, parent_id: str, metadata: dict) -> Dict[str, Any]:
+def parse_single_question(text: str, doc_metadata: dict) -> Dict[str, Any]:
     """
     核心解析逻辑：从一段文本中通过正则提取所有结构化字段
     """
     raw_text = text.strip()
 
     # 1. 提取题干 (匹配数字开头到第一个 □ 之前)
-    q_match = re.search(r'^\d+\.(.*?)(?=□)', raw_text, re.DOTALL)
+    q_match = re.search(r'^\s*\d+[\.\s]+(.*?)(?=□)', raw_text, re.DOTALL)
     question_text = q_match.group(1).strip() if q_match else "未知题干"
 
     # 2. 提取选项 (匹配所有 □ 开头的行)
-    options = re.findall(r'□\s*(.*)', raw_text)
-    clean_options = [opt.strip() for opt in options]
+    options = re.findall(r'□\s*(.*?)(?=\s*□|\n|$)', raw_text)
+    # 清洗掉每个选项前后的空格
+    clean_options = [opt.strip() for opt in options if opt.strip()]
 
     # 3. 提取答案与解析
     ans_pattern = r'- 题目 \d+ 答案:\s*([a-zA-Z,，\s正确错误\.]+)(.*)'
@@ -71,16 +66,17 @@ def parse_single_question(text: str, parent_id: str, metadata: dict) -> Dict[str
         else:
             q_type = "single"
 
+    question_id = doc_metadata.get("questionID")
+
     return {
-        "question_id": generate_stable_id(parent_id, question_text),
-        "parent_chunk_id": parent_id,
+        "question_id": question_id,
         "question": question_text,
         "options": clean_options,
         "answer": ans_list,
         "type": q_type,
         "explanation": explanation if explanation else None,
         "raw_text": raw_text,
-        "metadata": metadata     # 继承母chunk的元数据
+        "metadata": doc_metadata     # 继承母chunk的元数据
     }
 
 
@@ -113,13 +109,16 @@ def run_extraction():
         meta = raw_data['metadatas'][i]
         chunk_id = raw_data['ids'][i]
 
+        print(f"--- 正在解析原始块{chunk_id}...")
+        print(f"--- 前50字内容为 --- \n{content[:50]}...")
+
         # 按照“换行+数字点”切分
         items = re.split(r'\n(?=\d+\.)', content.strip())
 
         for q_text in items:
             if "答案:" in q_text:
                 try:
-                    parsed_q = parse_single_question(q_text, chunk_id, meta)
+                    parsed_q = parse_single_question(q_text,meta)
                     all_parsed_questions.append(parsed_q)
                 except Exception as e:
                     print(f"⚠️ 解析跳过: {e}")
@@ -131,6 +130,7 @@ def run_extraction():
     with open(output_path, 'w', encoding='utf-8') as f:
         json.dump(all_parsed_questions, f, ensure_ascii=False, indent=4)
 
+    print(" ✅  quiz_bank.json 更新完成")
     print(f"✅ 成功提取 {len(all_parsed_questions)} 道题目！文件已保存。")
 
 

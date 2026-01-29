@@ -3,6 +3,7 @@ import re
 import jieba
 import datetime
 import calendar
+import hashlib
 from typing import List, Dict, Any, Tuple, Optional
 from langchain_core.documents import Document
 
@@ -168,3 +169,15 @@ def _format_docs(docs: List[Document]) -> str:
         metadata_str = ", ".join([f"{k}: {v}" for k, v in metadata_display.items()])
         formatted_list.append(f"文档 {i + 1}:\n内容: {content}\n元数据: {metadata_str}\n---")
     return "\n".join(formatted_list)
+
+def generate_atomic_question_id(file_stem, q_text):
+    """
+    根据文件名和题目内容生成唯一的、稳定的 12 位哈希 ID。
+    不依赖数据库 ID，只依赖内容本身。
+    """
+    # 1. 清理文本（去掉空格换行，防止因为排版微调导致哈希变了）
+    clean_text = "".join(q_text.split())
+    # 2. 组合文件名和内容（防止不同文件有完全一样的题目）
+    seed = f"{file_stem}_{clean_text}"
+    # 3. 取 MD5 的前 12 位
+    return hashlib.md5(seed.encode('utf-8')).hexdigest()[:12]

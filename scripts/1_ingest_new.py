@@ -19,6 +19,8 @@ import re
 import chromadb
 import time
 import shutil
+import extract_quizzes
+from app import utils
 
 load_dotenv()
 
@@ -291,6 +293,8 @@ def create_database(incremental_update: bool = INCREMENTAL_UPDATE_DEFAULT):  # �
                     md_sections = header_splitter.split_text(markdown_content)
 
                     recursive_splitter = RecursiveCharacterTextSplitter(
+                        separators=["\n\n(?=\d+\.)", "\n\n", "\n", " "],
+                        is_separator_regex=True,
                         chunk_size=800,
                         chunk_overlap=100,
                         length_function=len
@@ -319,10 +323,25 @@ def create_database(incremental_update: bool = INCREMENTAL_UPDATE_DEFAULT):  # �
                         else:
                             new_meta["images"] = None
 
-                        # 规范化并执行二次切分
-                        section.metadata = {k: v for k, v in new_meta.items() if
-                                            _normalize_metadata_value(k, v) is not None}
-                        file_chunks.extend(recursive_splitter.split_documents([section]))
+                        if new_meta["is_quiz"]:
+                            content = section.page_content.strip()
+                            # 用正则切分出每一道题
+                            raw_questions = re.split(r'\n\s*(?=\d+\.)', content)
+
+                            for q_text in raw_questions:
+                                if q_text.strip():
+                                    # 【核心修改：调用统一 ID 生成器】
+                                    qid = utils.generate_atomic_question_id(file_stem, q_text)
+                                    quiz_meta = section.metadata.copy()
+                                    quiz_meta["questionID"] = qid  # 存入数据库元数据
+                                    quiz_meta["is_quiz"] = True
+
+                                    file_chunks.append(Document(page_content=q_text.strip(), metadata=quiz_meta))
+                        else:
+                            # 规范化并执行二次切分
+                            section.metadata = {k: v for k, v in new_meta.items() if
+                                                _normalize_metadata_value(k, v) is not None}
+                            file_chunks.extend(recursive_splitter.split_documents([section]))
 
                     print(f"✅ 成功解析 Markdown: {file_stem}")
 
@@ -684,3 +703,7 @@ def create_database(incremental_update: bool = INCREMENTAL_UPDATE_DEFAULT):  # �
 
 if __name__ == "__main__":
     create_database(incremental_update=INCREMENTAL_UPDATE_DEFAULT)  # <-- 使用顶部配置变量
+
+    # --- 【新增整合】 ---
+    print("\n🔄 正在同步更新题库json文件...")
+    extract_quizzes.run_extraction()

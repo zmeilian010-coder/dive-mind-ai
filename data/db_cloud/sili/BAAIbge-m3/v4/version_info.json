@@ -1,0 +1,23 @@
+{
+    "version": "v4",
+    "create_time": "2026-01-29 21:44:58",
+    "embedding_model": "BAAI/bge-m3",
+    "git_commit": "9fd3bd4",
+    "manual_notes": "修改MD文件处理逻辑，每个习题单独分块",
+    "parameters": {
+        "chunk_size": 800,
+        "chunk_overlap": 100,
+        "header_splitting": "H1-H4"
+    },
+    "statistics": {
+        "total_chunks_in_db": 1558,
+        "file_distribution": {
+            "OW教材.md": 396,
+            "Unknown": 399,
+            "专业术语对照.md": 21,
+            "亚洲潜点-知识库.xlsx": 44,
+            "潜水宝典.md": 675,
+            "cooldive_liveaboard_chunks_data_1-10.json": 23
+        }
+    }
+}
