@@ -5,8 +5,10 @@ import os
 import re
 import config
 import models
+import jieba
 import state_manager
 from langchain_core.documents import Document
+from langchain_community.retrievers import BM25Retriever
 
 # 获取数据库实例
 _, _, rag_db = models.get_models()
@@ -63,58 +65,87 @@ def prepare_quiz_set():
         selected_questions.extend(p2_selection)
         print(f"📚 P2 随机补位：选中 {len(p2_selection)} 道题")
 
-    # --- 核心：0 延迟资料预装载 (Back-tracing) ---
-    # 这一步保证了答题时不需要再查库
     final_quiz_set = []
     for q in selected_questions:
-        # 尝试从数据库获取原理原文和图片
-        try:
-            # 使用提取题目时存下的 parent_chunk_id
-            parent_id = q.get("parent_chunk_id")
-            parent_data = rag_db.get(ids=[parent_id], include=['documents', 'metadatas'])
-
-            if parent_data['documents']:
-                # 找到该习题在 MD 里的“邻居”：同一个 Header 下的非习题块
-                # 这里我们先简单拿父块内容，后期可以优化为拿父级标题下的知识块
-                q["knowledge_context"] = parent_data['documents'][0]
-                q["images"] = parent_data['metadatas'][0].get("images")
-        except Exception as e:
-            print(f"⚠️ 预装载资料失败 (ID: {q['question_id']}): {e}")
-            q["knowledge_context"] = "暂无手册原文参考"
-            q["images"] = None
-
         final_quiz_set.append(q)
+
+    return final_quiz_set
 
     random.shuffle(final_quiz_set)  # 打乱展示顺序
     return final_quiz_set
 
 
-def fetch_principle_context(q_metadata, question_text):
+def fetch_principle_context(q_metadata, q_text):
+    """
+    【2.0 混合检索版】
+    在当前 Header1 范围内，利用关键词 + 向量混合检索最匹配题干的知识点原文
+    """
     from models import get_models
     _, _, rag_db = get_models()
+    import jieba
 
-    # 1. 拿到最深层的非习题标题
-    search_headers = [q_metadata.get(f"Header{i}") for i in range(1, 5)
-                      if q_metadata.get(f"Header{i}") and "习题" not in q_metadata.get(f"Header{i}")]
+    h1 = q_metadata.get("Header1")
+    if not h1:
+        return None, None
 
-    if not search_headers: return None
-    anchor_header = search_headers[-1]
-
-    # 2. 组合搜索：标题 + 题干的前10个字（代表核心知识点）
-    search_query = f"{anchor_header} {question_text[:15]}"
-
-    # 3. 严格限制在当前章节内搜索非习题内容
-    results = rag_db.similarity_search(
-        search_query,
-        k=1,
-        filter={
-            "$and": [
-                {"is_quiz": {"$eq": False}},
-                {f"Header{len(search_headers)}": {"$eq": anchor_header}}
-            ]
-        }
+    # 1. 缩小范围：获取当前章节所有非习题的知识块
+    # 这一步是为了给 BM25 准备“小题库”
+    chapter_data = rag_db.get(
+        where={"$and": [
+            {"is_quiz": {"$eq": False}},
+            {"Header1": {"$eq": h1}}
+        ]},
+        include=['documents', 'metadatas']
     )
-    return results[0].page_content if results else None
+
+    if not chapter_data['documents']:
+        return None, None
+
+    # 2. 准备 Document 对象列表
+    chapter_docs = [
+        Document(page_content=d, metadata=m)
+        for d, m in zip(chapter_data['documents'], chapter_data['metadatas'])
+    ]
+
+    # --- 混合检索开始 ---
+
+    # A路：关键词检索 (针对当前章节建立临时索引，速度极快)
+    # 预处理 query：去掉一些题目常见的废话，保留核心名词
+    search_query = q_text.replace("？", "").replace("?", "")
+
+    bm25 = BM25Retriever.from_documents(
+        chapter_docs,
+        preprocess_func=lambda x: jieba.lcut(x)
+    )
+    # 获取关键词排名前 3 的文档
+    keyword_results = bm25.invoke(search_query)[:3]
+
+    # B路：向量检索 (在同一范围内找语义最接近的)
+    vector_results = rag_db.similarity_search(
+        search_query,
+        k=3,
+        filter={"$and": [{"is_quiz": {"$eq": False}}, {"Header1": {"$eq": h1}}]}
+    )
+
+    # --- 结果融合 ---
+    # 策略：如果一个文档在两路都出现了，它绝对是我们要找的原理
+    # 如果没交集，我们优先信任“关键词路”，因为教材复盘通常是针对特定名词的
+    combined_results = []
+    seen_contents = set()
+
+    # 简单的加权合并：关键词优先
+    for doc in keyword_results + vector_results:
+        content_snippet = doc.page_content[:50]
+        if content_snippet not in seen_contents:
+            combined_results.append(doc)
+            seen_contents.add(content_snippet)
+
+    # 拿到最终最匹配的那一个
+    if combined_results:
+        best_doc = combined_results[0]
+        return best_doc.page_content, best_doc.metadata.get("images")
+
+    return None, None
 
 def render_quiz_page():
     """复习模式主渲染函数"""
@@ -277,7 +308,7 @@ def render_feedback(q):
     # --- 【新增：选项对照区】 ---
     st.write("**选项回顾：**")
     for opt in q['options']:
-        opt_label_match = re.match(r'^([a-d])[\.\s]', opt.lower())
+        opt_label_match = re.match(r'^([a-z])[\.\s]', opt.lower())
         opt_label = opt_label_match.group(1) if opt_label_match else opt.lower()
 
         # 如果这个选项是正确答案之一，给它加个绿色的框或加粗
@@ -290,22 +321,25 @@ def render_feedback(q):
     if q.get('explanation'):
         st.info(f"💡 **Buddy 的解析：** {q['explanation']}")
 
-    # # 问题 1 修复：不展示习题块原文，展示回溯到的原理原文
-    # with st.expander("📖 查看手册原理复盘"):
-    #     # 尝试回溯原理
-    #     principle = fetch_principle_context(q['metadata'])
-    #     if principle:
-    #         st.markdown(principle)
-    #     else:
-    #         st.caption("Buddy 正在利用专业知识为你解析...")
-    #         # 如果库里没原理，可以让 AI 现写一段
-    #         st.write(q.get('explanation', "暂无原文参考，请查阅 PADI 手册。"))
+    # 问题 1 修复：不展示习题块原文，展示回溯到的原理原文
+    # --- 【按需触发：原理回溯】 ---
+    with st.spinner("Buddy 正在翻阅手册原文..."):
+        principle_text, principle_img = fetch_principle_context(q['metadata'], q['question'])
+
+    with st.expander("📖 查看手册原理复盘"):
+        if principle_text:
+            if principle_img:
+                st.image(principle_img.split(",")[0], caption="知识点关联图示")
+            st.markdown(principle_text)
+            st.caption(f"注：以上内容来自OW教材手册【{q['metadata'].get('Header1', '通用章节')}】")
+        else:
+            st.write("Buddy 暂时没在库里找到这段原理的直接原文，建议参考上方解析。")
 
     if "debug_probe" in st.session_state:
         st.caption(
             f"🧪 调试信息 -> 你选了: `{st.session_state.debug_probe['user_label']}` | 正确答案: `{st.session_state.debug_probe['correct_ans']}`")
 
-    if st.button("下一题 ➡️", use_container_width=True):
+    if st.button("下一题 ➡️", use_container_width=True, key=f"next_btn_{st.session_state.quiz_step}"):
         st.session_state.quiz_step += 1
         st.session_state.quiz_stage = "asking"
         st.rerun()

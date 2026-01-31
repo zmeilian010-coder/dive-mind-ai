@@ -38,7 +38,7 @@ USER_MEMORY_DIR = DATA_DIR / "user_memory"
 # 4. 向量数据库 (Vector DB Path Logic)
 # =======================================================
 # 数据库版本控制
-ACTIVE_DB_VERSION = "v4"  # <-- 在这里修改版本号
+ACTIVE_DB_VERSION = "v5"  # <-- 在这里修改版本号
 
 # --- 配置模式选择 ---
 # 设置为 True 进行增量更新 (只处理修改过的文件和新文件)

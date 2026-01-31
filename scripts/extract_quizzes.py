@@ -124,7 +124,7 @@ def run_extraction():
                     print(f"⚠️ 解析跳过: {e}")
 
     # 3. 保存结果
-    output_path = os.path.join(config.DATA_DIR, "processed", "quiz_bank.json")
+    output_path = os.path.join(config.DATA_DIR, "processed", "quiz_bank_1.json")
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
 
     with open(output_path, 'w', encoding='utf-8') as f:
