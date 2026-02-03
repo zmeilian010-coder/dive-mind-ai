@@ -12,6 +12,8 @@ if platform.system() != "Windows":
 import streamlit as st
 import os
 import json
+from streamlit_mic_recorder import mic_recorder
+import ai_engine
 
 # 2. 页面配置
 st.set_page_config(page_title="DiveMind AI", page_icon="🤿", layout="centered")
@@ -23,19 +25,27 @@ import state_manager
 import ai_engine
 import ui_components
 
-# --- 【在逻辑开始前初始化所有状态】 ---
+# ====================== 状态初始化 (放在脚本最顶部) ============================
 state_manager.init_session_state()
 
-# 4. 初始化模型和数据库
+# 初始化模型和数据库
 slm_parser, llm_buddy, rag_db = models.get_models()
 
-# 5. 初始化用户文件路径
+# 初始化用户文件路径
 user_id = state_manager.get_persistent_user_id()
 user_file = os.path.join(config.USER_MEMORY_DIR, f"{user_id}.json")
 
+# 初始化输入状态
+if "stt_buffer" not in st.session_state:
+    st.session_state.stt_buffer = ""
+if "active_prompt" not in st.session_state:
+    st.session_state.active_prompt = None
 
+# 增加一个 id 记录器,用于记录语音输入的录音处理状态
+if "last_processed_audio_id" not in st.session_state:
+    st.session_state.last_processed_audio_id = None
 
-# -----主界面逻辑---
+# ==============================侧边栏逻辑=====================================
 # 加载侧边栏用户档案
 ui_components.render_sidebar(user_file)
 # --- 1. 初始化 Session State ---
@@ -58,7 +68,7 @@ else:
     quiz_module.render_quiz_page() # 调用副脚本的渲染函数
 
 
-# --- 主界面逻辑 ---
+# ====================== 主界面逻辑 ==============================
 if not st.session_state.onboarding_complete:
     st.title("🌊 欢迎来到 DiveMind")
     with st.chat_message("assistant", avatar="🤿"):
@@ -120,44 +130,116 @@ else:
                     st.session_state.review_mode = False
                     st.rerun()
 
+# =======================输入区域 =================================
+
+# 统一入口逻辑
+prompt = None
+
+# 如果处于【非复习模式】，才显示输入组件
+if not st.session_state.get("review_mode", False):
+
+    # --- 麦克风按钮 (始终显示在输入框上方) ---
+    from streamlit_mic_recorder import mic_recorder
+    import ai_engine
+
+    # 放置在工具栏列中
+    col1, col2, col3 = st.columns([1, 1, 1])
+    with col2:
+        audio = mic_recorder(
+            start_prompt="🎤 语音提问",
+            stop_prompt="🛑 停止录音",
+            key="global_mic_recorder"
+        )
+
+    # 处理录音结果
+    if audio:
+        # 每一个新的录音，组件都会生成一个唯一的 id (通常在 audio['id'])
+        # 如果没有 id，我们就用音频内容的 hash 值作为标识
+        import hashlib
+
+        current_audio_id = hashlib.md5(audio['bytes']).hexdigest()
+
+        # 【核心修复】只有当这段音频的 ID 和上一次处理的不一样时，才进入识别
+        if current_audio_id != st.session_state.last_processed_audio_id:
+            with st.chat_message("assistant"):
+                with st.spinner("Buddy 正在转化文字..."):
+                    recognized_text = ai_engine.speech_to_text(audio['bytes'])
+                    if recognized_text:
+                        # 标记这段音频已经处理过了
+                        st.session_state.last_processed_audio_id = current_audio_id
+                        st.session_state.stt_buffer = recognized_text
+                        st.rerun()  # 识别完刷新，进入确认框模式
+                    else:
+                        st.warning("识别结果为空，请重试。")
+                        audio = None
+    # --- 语音确认/编辑区域 ---
+    if st.session_state.stt_buffer:
+        with st.container(border=True):
+            st.caption("📝 语音识别结果 (可在此修改):")
+            # 注意：这里的 key 必须固定
+            confirmed_text = st.text_area("stt_editor",
+                                          value=st.session_state.stt_buffer,
+                                          label_visibility="collapsed")
+
+            c1, c2 = st.columns(2)
+            if c1.button("✅ 确认并发送", key="stt_send"):
+                st.session_state.active_prompt = confirmed_text
+                st.session_state.stt_buffer = ""
+                st.rerun()
+            if c2.button("🗑️ 取消", key="stt_cancel"):
+                st.session_state.stt_buffer = ""
+                st.rerun()
+
+    # --- 唯一的文本输入框渲染 ---
+    # 关键逻辑：如果正在“确认语音”，则不渲染底部的输入框，防止 ID 冲突
+    if not st.session_state.stt_buffer:
+        user_input = st.chat_input("和你的 Buddy 聊聊...", key="main_chat_input")
+        if user_input:
+            prompt = user_input
+
+# 捕获刚刚确认的语音输入
+if st.session_state.active_prompt:
+    prompt = st.session_state.active_prompt
+    st.session_state.active_prompt = None  # 阅后即焚
+
 # --- 正常对话逻辑 ---
-    if prompt := st.chat_input("和你的 Buddy 聊聊..."):
-        # 1. 显示用户输入
-        st.session_state.messages.append({"role": "user", "content": prompt})
-        with st.chat_message("user"):
-            st.markdown(prompt)
+if prompt :
+    # 1. 显示用户输入
+    st.session_state.messages.append({"role": "user", "content": prompt})
+    with st.chat_message("user"):
+        st.markdown(prompt)
 
-        with st.chat_message("assistant"):
-            with st.status("Buddy 正在思考...", expanded=True) as status:
-                # --- 第一步：小模型解析意图 ---
-                status.write("🔍 正在分析你的意图...")
-                analysis = ai_engine.parse_user_intent(prompt, st.session_state.messages,state_manager.load_user_profile(user_file))
+    with st.chat_message("assistant"):
+        with st.status("Buddy 正在思考...", expanded=True) as status:
+            # --- 第一步：小模型解析意图 ---
+            status.write("🔍 正在分析你的意图...")
+            analysis = ai_engine.parse_user_intent(prompt, st.session_state.messages,state_manager.load_user_profile(user_file))
 
-                # --- 第二步：系统自动执行检索 ---
-                if analysis["intent"] == "CONSULT":
-                    status.write(f"📚 正在为你翻阅知识库: {analysis['keywords']}...")
-                    ai_engine.automated_retrieval_hub(analysis, st.session_state.user_profile)
-                else:
-                    status.write("💬 原来是想找我叙叙旧，这就来！")
+            # --- 第二步：系统自动执行检索 ---
+            if analysis["intent"] == "CONSULT":
+                status.write(f"📚 正在为你翻阅知识库: {analysis['keywords']}...")
+                ai_engine.automated_retrieval_hub(analysis, st.session_state.user_profile)
+            else:
+                status.write("💬 原来是想找我叙叙旧，这就来！")
 
-                status.update(label="思考完成!正在打字......", state="complete", expanded=False)
+            status.update(label="思考完成!正在打字......", state="complete", expanded=False)
 
-            # --- 第三步：大模型生成回复 ---
-            import state_manager
+        # --- 第三步：大模型生成回复 ---
+        import state_manager
 
-            user_profile = st.session_state.user_profile
-            response = ai_engine.get_buddy_response_stream(prompt, state_manager.DataStorage.BASKET, user_profile)
+        user_profile = st.session_state.user_profile
+        response = ai_engine.get_buddy_response_stream(prompt, state_manager.DataStorage.BASKET, user_profile)
 
-            full_response = st.write_stream(response)
-            final_answer = full_response
-            st.markdown(final_answer)
+        full_response = st.write_stream(response)
+        final_answer = full_response
+        st.markdown(final_answer)
 
-            # --- 渲染超级卡片 ---
-            if state_manager.DataStorage.BASKET:
-                ui_components.display_trip_results(state_manager.DataStorage.BASKET)
+        # --- 渲染超级卡片 ---
+        if state_manager.DataStorage.BASKET:
+            ui_components.display_trip_results(state_manager.DataStorage.BASKET)
 
-            # 存入历史记录
-            st.session_state.messages.append({"role": "assistant", "content": final_answer})
+        # 存入历史记录
+        st.session_state.messages.append({"role": "assistant", "content": final_answer})
 
-            # --- 第五步：静默记忆提取 (异步) ---
-            ai_engine.extract_new_memory(prompt, final_answer,st.session_state.user_profile)
+        # --- 第五步：静默记忆提取 (异步) ---
+        ai_engine.extract_new_memory(prompt, final_answer,st.session_state.user_profile)

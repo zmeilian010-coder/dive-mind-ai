@@ -109,19 +109,23 @@ def run_extraction():
         meta = raw_data['metadatas'][i]
         chunk_id = raw_data['ids'][i]
 
-        print(f"--- 正在解析原始块{chunk_id}...")
-        print(f"--- 前50字内容为 --- \n{content[:50]}...")
+        # print(f"--- 正在解析原始块{chunk_id}...")
+        # print(f"--- 前50字内容为 --- \n{content[:50]}...")
 
         # 按照“换行+数字点”切分
         items = re.split(r'\n(?=\d+\.)', content.strip())
 
+        chunk_questions_count = 0
         for q_text in items:
             if "答案:" in q_text:
                 try:
                     parsed_q = parse_single_question(q_text,meta)
                     all_parsed_questions.append(parsed_q)
+                    chunk_questions_count += 1
                 except Exception as e:
                     print(f"⚠️ 解析跳过: {e}")
+        if chunk_questions_count == 0:
+            print(f"⚪ 分块 [{chunk_id}] (Category: {meta.get('category')}) 产出 0 道题。内容: {content[:30]}...")
 
     # 3. 保存结果
     output_path = os.path.join(config.DATA_DIR, "processed", "quiz_bank.json")

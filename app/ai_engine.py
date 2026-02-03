@@ -20,7 +20,10 @@ def speech_to_text(audio_bytes):
     将录音字节流发送至硅基流动进行识别
     """
     if not audio_bytes:
+        print("❌ 错误：收到空的音频数据")
         return None
+
+    print(f"🎤 收到音频数据，大小: {len(audio_bytes)} 字节")
 
     try:
         # 1. 准备客户端 (这里直接用 OpenAI SDK，因为它兼容硅基流动)
@@ -42,6 +45,7 @@ def speech_to_text(audio_bytes):
             prompt="用户的输入可能包含潜水专业词汇比如BCD、湿衣等"
         )
 
+        print(f"✅ 识别成功！结果: {transcript.text}")
         return transcript.text
     except Exception as e:
         st.error(f"语音识别失败: {e}")

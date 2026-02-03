@@ -83,7 +83,7 @@ SLM_MODEL = "Qwen/Qwen3-8B"
 # 主agent大模型
 RAG_LLM_MODEL = "deepseek-chat"
 # 语音识别模型
-STT_MODEL = "FunAudioLLM/SenseVoiceSmall"
+STT_MODEL = "TeleAI/TeleSpeechASR"
 
 # --- 本地模型配置 (仅脚本本地运行时有效) ---
 LOCAL_BGE_PATH = Path("E:/Python项目/dify应用的评估效果/local_bge_m3_model/bge-m3")
