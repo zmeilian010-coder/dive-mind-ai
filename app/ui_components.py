@@ -1,6 +1,8 @@
 # ui_components.py
 import streamlit as st
 import json
+
+
 from utils import parse_trip_content
 
 def render_super_trip_card(doc, idx):
@@ -86,42 +88,137 @@ def display_trip_results(docs):
 
 def render_sidebar(user_file):
     """侧边栏用户画像与管理界面"""
+    import state_manager
+    import json
+
     with st.sidebar:
         st.header("🤿 潜水备忘录")
 
-        if not st.session_state.onboarding_complete:
-            progress = (st.session_state.onboarding_step - 1) / 3
-            st.write("正在建立连接，请在对话框完成初始化...")
+        # --- 情况 A：如果是新用户，正在做问卷 ---
+        if not st.session_state.get("onboarding_complete", False):
+            st.info("正在建立连接...")
+            step = st.session_state.get("onboarding_step", 1)
+            progress = (step - 1) / 3
             st.progress(progress)
-            st.caption(f"进度：{int(progress * 100)}%")
+            st.caption("完成初始化后即可开启管理模式")
+
+        # --- 情况 B：已经是老用户 ---
         else:
-            st.success("✅ Buddy 已记下你的档案")
+            # 1. 给 Toggle 增加唯一 key
+            edit_toggle = st.toggle("🛠️ 进入档案管理模式",
+                                    value=st.session_state.get("edit_mode", False),
+                                    key="sidebar_edit_mode_toggle")  # 👈 必须加 key
+            st.session_state.edit_mode = edit_toggle
+
             profile = st.session_state.user_profile
-            st.write(f"**等级：** {profile['level']}")
-            st.write(f"**经验：** {profile['logs']}")
+            st.divider()
 
-            st.write("**偏好标签：**")
-            for i, tag in enumerate(profile['preference']):
-                cols = st.columns([4, 1])
-                cols[0].caption(f"• {tag}")
-                if cols[1].button("❌", key=f"del_{i}"):
-                    st.session_state.user_profile['preference'].pop(i)
-                    with open(user_file, 'w', encoding='utf-8') as f:
-                        json.dump(st.session_state.user_profile, f, ensure_ascii=False, indent=4)
-                    st.rerun()
+            if not st.session_state.edit_mode:
+                # --- 【展示模式】 ---
+                st.write(f"**当前等级：** `{profile.get('level')}`")
+                st.write(f"**潜水瓶数：** `{profile.get('logs')}`")
+                st.write("**偏好标签：**")
+                for i, tag in enumerate(profile['preference']):
+                    cols = st.columns([4, 1])
+                    cols[0].caption(f"• {tag}")
 
-        # 档案详情展示
-        profile = st.session_state.user_profile
-        st.subheader("🗺️ 足迹")
-        sites = profile.get("visited_sites", [])
-        st.write(" ".join([f"`{s}`" for s in sites]) if sites else "还没留下足迹")
+                # 档案详情展示
+                profile = st.session_state.user_profile
+                st.subheader("🗺️ 足迹")
+                sites = profile.get("visited_sites", [])
+                st.write(" ".join([f"`{s}`" for s in sites]) if sites else "还没留下足迹")
 
-        st.subheader("🐬 生物集邮")
-        animals = profile.get("seen_animals", [])
-        st.write(" ".join([f"`{a}`" for a in animals]) if animals else "还没集邮")
+                st.subheader("🐬 生物集邮")
+                animals = profile.get("seen_animals", [])
+                st.write(" ".join([f"`{a}`" for a in animals]) if animals else "还没集邮")
 
-        st.subheader("🧠 教练笔记")
-        notes = profile.get("dynamic_notes", []) + profile.get("dive_tips", [])
-        if notes:
-            for n in notes:
-                st.info(n)
+                st.subheader("⭐ buddy笔记")
+                notes = profile.get("dynamic_notes", []) + profile.get("dive_tips", [])
+                if notes:
+                    for n in notes:
+                        st.info(n)
+            else:
+                # --- 【管理模式】 ---
+                st.info("💡 修改将实时保存至本地 JSON。")
+
+                # A. 等级修改 - 增加唯一 key
+                level_options = ["初学者", "OW", "AOW及以上"]
+                try:
+                    default_idx = level_options.index(profile.get('level', 'OW'))
+                except:
+                    default_idx = 1
+
+                new_level = st.selectbox("修改等级",
+                                         options=level_options,
+                                         index=default_idx,
+                                         key="sb_level_select")  # 👈 必须加 key
+
+                # B. 瓶数修改 - 增加唯一 key
+                new_logs = st.text_input("修改瓶数",
+                                         value=str(profile.get('logs', '0-20')),
+                                         key="sb_logs_input")  # 👈 必须加 key
+
+                # 检查并保存基础信息
+                if new_level != profile['level'] or new_logs != profile['logs']:
+                    profile['level'] = new_level
+                    profile['logs'] = new_logs
+                    state_manager.save_user_profile(user_file, profile)
+                    st.toast("✅ 基础档案已更新")
+
+                # 偏好标签 - 增加唯一 key
+                st.subheader("🎯 偏好标签")
+                pref_options = ["看大货 (鲨鱼/Manta)", "找微距 (海兔)", "放流潜水", "沉船/洞穴", "水下摄影", "夜潜"]
+                current_prefs = [p for p in profile.get('preference', []) if p in pref_options]
+                # 使用 multiselect 进行管理
+                new_prefs = st.multiselect(
+                    "调整我的偏好",
+                    options=pref_options,
+                    default=current_prefs,
+                    key="sb_pref_multiselect"  # 必须加唯一 key
+                )
+                # 检查是否有变动并保存
+                if new_prefs != profile.get('preference'):
+                    profile['preference'] = new_prefs
+                    state_manager.save_user_profile(user_file, profile)
+                    st.toast("✅ 偏好设置已更新")
+
+                # 足迹管理 - 给删除按钮增加带索引的 key
+                st.subheader("🗺️ 足迹")
+                sites = profile.get("visited_sites", [])
+                for i, site in enumerate(sites):
+                    c1, c2 = st.columns([4, 1])
+                    c1.caption(site)
+                    # 使用 f-string 确保每个按钮的 key 都是唯一的
+                    if c2.button("❌", key=f"btn_del_site_{i}"):
+                        profile["visited_sites"].pop(i)
+                        state_manager.save_user_profile(user_file, profile)
+                        st.rerun()
+                # 新增足迹 - 增加唯一 key
+                new_site = st.text_input("➕ 新增足迹", key="sb_add_site_input")
+                if st.button("确认添加", key="sb_add_site_btn"):
+                    if new_site:
+                        if "visited_sites" not in profile: profile["visited_sites"] = []
+                        profile["visited_sites"].append(new_site.strip())
+                        state_manager.save_user_profile(user_file, profile)
+                        st.rerun()
+
+                # 生物集邮 - 给删除按钮增加带索引的 key
+                st.subheader("🗺 生物集邮")
+                animals = profile.get("seen_animals", [])
+                for i, animal in enumerate(animals):
+                    c1, c2 = st.columns([4, 1])
+                    c1.caption(animal)
+                    # 使用 f-string 确保每个按钮的 key 都是唯一的
+                    if c2.button("❌", key=f"btn_del_animal_{i}"):
+                        profile["seen_animals"].pop(i)
+                        state_manager.save_user_profile(user_file, profile)
+                        st.rerun()
+                # 新增生物集邮 - 增加唯一 key
+                new_animal = st.text_input("➕ 新增生物", key="sb_add_animal_input")
+                if st.button("确认添加", key="sb_add_animal_btn"):
+                    if new_animal:
+                        if "seen_animals" not in profile: profile["seen_animals"] = []
+                        profile["seen_animals"].append(new_animal.strip())
+                        state_manager.save_user_profile(user_file, profile)
+                        st.rerun()
+

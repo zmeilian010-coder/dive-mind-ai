@@ -82,7 +82,7 @@ if not st.session_state.onboarding_complete:
         elif st.session_state.onboarding_step == 2:
             st.write("太棒了！那你的**潜水经验（瓶数）**大概是多少？")
             cols = st.columns(4)
-            choices = ["0-20", "21-49", "50-99", "100+"]
+            choices = ["0-29", "30-49","50-99", "100+"]
             for i, c in enumerate(choices):
                 if cols[i].button(c):
                     st.session_state.user_profile['logs'] = c;
@@ -91,7 +91,7 @@ if not st.session_state.onboarding_complete:
 
         elif st.session_state.onboarding_step == 3:
             st.write("最后，你最喜欢的**潜水风格**是？")
-            choices = ["看大货 (鲨鱼/Manta)", "找微距 (海兔)", "放流潜水", "沉船/洞穴"]
+            choices = ["看大货 (鲨鱼/Manta)", "找微距 (海兔)", "放流潜水", "沉船/洞穴", "水下摄影", "夜潜"]
             selected_pref = st.multiselect("可多选", choices)
             if st.button("开启我的潜水之旅"):
                 st.session_state.user_profile['preference'] = selected_pref

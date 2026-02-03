@@ -49,7 +49,7 @@ def parse_single_question(text: str, doc_metadata: dict) -> Dict[str, Any]:
     explanation = ""
     if ans_match:
         raw_answer = ans_match.group(1).strip().rstrip('.')
-        explanation = ans_match.group(2).strip()
+        explanation = ans_match.group(2).strip().lstrip('.,。， ·')
 
         # 4. 判定题型
     ans_list = []
@@ -124,7 +124,7 @@ def run_extraction():
                     print(f"⚠️ 解析跳过: {e}")
 
     # 3. 保存结果
-    output_path = os.path.join(config.DATA_DIR, "processed", "quiz_bank_1.json")
+    output_path = os.path.join(config.DATA_DIR, "processed", "quiz_bank.json")
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
 
     with open(output_path, 'w', encoding='utf-8') as f:

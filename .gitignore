@@ -34,10 +34,10 @@ data/db_cloud/siliconflow/BAAIbge-m3/v1/
 data/db_cloud/siliconflow/BAAIbge-m3/v2/
 data/db_cloud/siliconflow/BAAIbge-m3/v3/
 data/db_cloud/siliconflow/BAAIbge-m3/v4/
-
+data/db_cloud/siliconflow/BAAIbge-m3/v5/
 
 # 2. 只有 v2 版本（准备上云的）开绿灯
-!data/db_cloud/siliconflow/BAAIbge-m3/v5/
+!data/db_cloud/siliconflow/BAAIbge-m3/v6/
 !data/processed/
 
 # 如果你以后想传 v3，就在下面再加一行 !data/db_cloud/.../v3/

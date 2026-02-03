@@ -10,6 +10,8 @@ from dotenv import load_dotenv
 # 手动控制开关：可选 "LOCAL" 或 "CLOUD"
 # 建议：本地跑 ingest 用 "LOCAL" 或 "CLOUD" 按需切换；云端 App 运行时建议设为 "CLOUD"
 EMBEDDING_MODE = "CLOUD"
+# 用于切换测试模式
+DEBUG_MODE = True
 
 # =======================================================
 # 2. 路径锚定 (Project Root Anchor)
@@ -38,7 +40,7 @@ USER_MEMORY_DIR = DATA_DIR / "user_memory"
 # 4. 向量数据库 (Vector DB Path Logic)
 # =======================================================
 # 数据库版本控制
-ACTIVE_DB_VERSION = "v5"  # <-- 在这里修改版本号
+ACTIVE_DB_VERSION = "v6"  # <-- 在这里修改版本号
 
 # --- 配置模式选择 ---
 # 设置为 True 进行增量更新 (只处理修改过的文件和新文件)
@@ -80,6 +82,8 @@ EMBEDDING_MODEL_CLOUD = "BAAI/bge-m3"
 SLM_MODEL = "Qwen/Qwen3-8B"
 # 主agent大模型
 RAG_LLM_MODEL = "deepseek-chat"
+# 语音识别模型
+STT_MODEL = "FunAudioLLM/SenseVoiceSmall"
 
 # --- 本地模型配置 (仅脚本本地运行时有效) ---
 LOCAL_BGE_PATH = Path("E:/Python项目/dify应用的评估效果/local_bge_m3_model/bge-m3")

@@ -4,7 +4,8 @@ import re
 import datetime
 import streamlit as st
 from langchain_core.messages import HumanMessage, SystemMessage
-
+import io
+from openai import OpenAI
 import config
 import models
 import state_manager
@@ -13,6 +14,38 @@ import tools
 # 获取模型实例
 slm_parser, agent_llm, _ = models.get_models()
 
+
+def speech_to_text(audio_bytes):
+    """
+    将录音字节流发送至硅基流动进行识别
+    """
+    if not audio_bytes:
+        return None
+
+    try:
+        # 1. 准备客户端 (这里直接用 OpenAI SDK，因为它兼容硅基流动)
+        client = OpenAI(
+            api_key=st.secrets["SILICONFLOW_API_KEY"],
+            base_url=config.SILICON_BASE_URL
+        )
+
+        # 2. 将字节流转换为类似文件的对象
+        # 注意：streamlit-mic-recorder 默认通常返回 webm 或 wav 格式
+        audio_file = io.BytesIO(audio_bytes)
+        audio_file.name = "audio.wav"
+
+        # 3. 调用识别接口
+        # 我们在这里注入“潜水词库”作为 Prompt 诱导，极大提升准确率
+        transcript = client.audio.transcriptions.create(
+            model=config.STT_MODEL,
+            file=audio_file,
+            prompt="用户的输入可能包含潜水专业词汇比如BCD、湿衣等"
+        )
+
+        return transcript.text
+    except Exception as e:
+        st.error(f"语音识别失败: {e}")
+        return None
 
 def parse_user_intent(query, chat_history, user_profile_sidebar):
     """调用 7B 解析意图和参数"""

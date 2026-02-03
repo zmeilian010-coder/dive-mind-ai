@@ -1,9 +1,9 @@
 {
-    "version": "v5",
-    "create_time": "2026-01-31 15:10:36",
+    "version": "v6",
+    "create_time": "2026-02-03 17:04:31",
     "embedding_model": "BAAI/bge-m3",
     "git_commit": "6c1ddf7",
-    "manual_notes": "修改MD文件，把“导读问题”直接作为正文内容分块的标题；修改部分错别字",
+    "manual_notes": "修复习题chunk的source为“unknown”的问题",
     "parameters": {
         "chunk_size": 800,
         "chunk_overlap": 100,
@@ -12,8 +12,7 @@
     "statistics": {
         "total_chunks_in_db": 1552,
         "file_distribution": {
-            "OW教材.md": 390,
-            "Unknown": 399,
+            "OW教材.md": 789,
             "专业术语对照.md": 21,
             "亚洲潜点-知识库.xlsx": 44,
             "潜水宝典.md": 675,
