@@ -105,6 +105,14 @@ DEEPSEEK_API_KEY = get_secret("DEEPSEEK_API_KEY")
 
 if not SILICONFLOW_API_KEY:
     print(f"❌ 严重警告：未能从 {env_path} 加载到 SILICONFLOW_API_KEY")
+
+# 火山引擎语音大模型配置
+VOLC_APP_ID = get_secret("VOLC_APP_ID")
+VOLC_ACCESS_TOKEN = get_secret("VOLC_ACCESS_TOKEN")
+VOLC_CLUSTER = get_secret("VOLC_CLUSTER")
+## 接口地址
+VOLC_SUBMIT_URL = "https://openspeech.bytedance.com/api/v1/auc/submit"
+VOLC_QUERY_URL = "https://openspeech.bytedance.com/api/v1/auc/query"
 # =======================================================
 # 7. 提示词 (Prompts)
 # =======================================================

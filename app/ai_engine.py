@@ -2,14 +2,17 @@
 import json
 import re
 import datetime
-import streamlit as st
 from langchain_core.messages import HumanMessage, SystemMessage
-import io
-from openai import OpenAI
-import config
 import models
 import state_manager
 import tools
+import requests
+import base64
+import json
+import uuid
+import time
+import streamlit as st
+import config
 
 # 获取模型实例
 slm_parser, agent_llm, _ = models.get_models()
@@ -17,38 +20,110 @@ slm_parser, agent_llm, _ = models.get_models()
 
 def speech_to_text(audio_bytes):
     """
-    将录音字节流发送至硅基流动进行识别
+    使用火山引擎 AUC/SeedASR 大模型进行语音识别
+    逻辑：Base64编码 -> Submit提交 -> Query轮询 -> 返回文本
     """
     if not audio_bytes:
-        print("❌ 错误：收到空的音频数据")
+        print("❌ 错误：未收到音频数据")
         return None
 
-    print(f"🎤 收到音频数据，大小: {len(audio_bytes)} 字节")
+    print(f"🎤 收到音频，大小: {len(audio_bytes)} 字节")
+
+    # 1. 音频数据转 Base64 字符串
+    audio_base64 = base64.b64encode(audio_bytes).decode('utf-8')
+
+    # 2. 准备通用的请求头 (Header)
+    # 火山引擎的鉴权信息放在 Header 中
+    common_headers = {
+        "Content-Type": "application/json",
+        "X-Api-App-Key": config.VOLC_APP_ID,
+        "X-Api-Access-Key": config.VOLC_ACCESS_TOKEN,
+        "X-Api-Resource-Id": config.VOLC_CLUSTER,  # 资源ID：volc.seedasr.auc
+        "X-Api-Request-Id": str(uuid.uuid4()),  # 每一请求生成的唯一ID
+        "X-Api-Sequence": "-1"  # 固定值
+    }
+
+    # 3. 构造提交任务 (Submit) 的 Payload
+    submit_payload = {
+        "app": {
+            "appid": config.VOLC_APP_ID,
+            "token": config.VOLC_ACCESS_TOKEN,
+            "cluster": config.VOLC_CLUSTER
+        },
+        "user": {"uid": "buddy_user_default"},
+        "audio": {
+            "format": "wav",
+            "data": audio_base64
+        }
+        # 【核心修改】：直接删掉 additions 字段，或者按下方注释方式写
+    }
 
     try:
-        # 1. 准备客户端 (这里直接用 OpenAI SDK，因为它兼容硅基流动)
-        client = OpenAI(
-            api_key=st.secrets["SILICONFLOW_API_KEY"],
-            base_url=config.SILICON_BASE_URL
-        )
+        # --- 第一步：提交识别任务 ---
+        print(f"📡 正在提交任务至火山引擎...")
+        resp = requests.post(config.VOLC_SUBMIT_URL, headers=common_headers, json=submit_payload)
+        submit_data = resp.json()
 
-        # 2. 将字节流转换为类似文件的对象
-        # 注意：streamlit-mic-recorder 默认通常返回 webm 或 wav 格式
-        audio_file = io.BytesIO(audio_bytes)
-        audio_file.name = "audio.wav"
+        # 【核心修复】：直接比对数字 1000
+        resp_obj = submit_data.get("resp", {})
+        if resp_obj.get("code") != 1000:  # 👈 去掉引号，改为数字
+            print(f"❌ 任务提交真的失败了: {submit_data}")
+            return None
 
-        # 3. 调用识别接口
-        # 我们在这里注入“潜水词库”作为 Prompt 诱导，极大提升准确率
-        transcript = client.audio.transcriptions.create(
-            model=config.STT_MODEL,
-            file=audio_file,
-            prompt="用户的输入可能包含潜水专业词汇比如BCD、湿衣等"
-        )
+        task_id = resp_obj["id"]
+        print(f"✅ 任务提交成功！ID: {task_id}")
 
-        print(f"✅ 识别成功！结果: {transcript.text}")
-        return transcript.text
+        # --- 第二步：循环轮询结果 ---
+        # --- 第二步：循环轮询结果 ---
+        max_retries = 6
+        for i in range(max_retries):
+            time.sleep(1)
+
+            # 【核心修改】：将 appid 和 token 全部平铺在最外层
+            query_payload = {
+                "appid": config.VOLC_APP_ID,  # 账户 ID
+                "token": config.VOLC_ACCESS_TOKEN,  # 鉴权 Token
+                "id": task_id  # 任务 ID
+            }
+
+            print(f"🔍 正在查询结果 ({i + 1}/{max_retries})...")
+
+            # Header 保持不变（包含 X-Api-App-Key 等）
+            query_resp = requests.post(
+                config.VOLC_QUERY_URL,
+                headers=common_headers,
+                json=query_payload
+            )
+            query_data = query_resp.json()
+
+            # --- 结果解析 ---
+            q_resp_obj = query_data.get("resp", {})
+            # 兼容处理：code 可能是 int 也可能是 str
+            q_code = str(q_resp_obj.get("code", ""))
+
+            if q_code == "1000":  # 成功
+                final_text = q_resp_obj.get("text", "")
+                if final_text:
+                    print(f"🎉 识别成功: {final_text}")
+                    return final_text
+                else:
+                    # 如果 code 是 1000 但 text 为空，说明还没写完，继续等
+                    print("⏳ 状态 1000 但文字生成中...")
+                    continue
+
+            elif q_code == "1001":  # 任务处理中
+                print("⏳ 任务处理中 (1001)...")
+                continue
+            else:
+                # 打印出完整的错误 JSON，方便继续调试
+                print(f"❌ 查询返回业务错误: {query_data}")
+                break
+
+        print("⏳ 语音识别超时")
+        return None
+
     except Exception as e:
-        st.error(f"语音识别失败: {e}")
+        print(f"❌ 调用火山 ASR 发生异常: {e}")
         return None
 
 def parse_user_intent(query, chat_history, user_profile_sidebar):
